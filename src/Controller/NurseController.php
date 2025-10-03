@@ -4,58 +4,112 @@ namespace App\Controller;
 
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
-use Symfony\Component\Routing\Annotation\Route;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\HttpFoundation\Response;
 
-class NurseController extends AbstractController
+final class NurseController extends AbstractController
 {
-    #[Route('/nurse/index', name: 'get_all_nurses', methods: ['GET'])]
-    public function getAllNurses(): JsonResponse
-    {
-        $nurses = [
-            ['id' => 1, 'name' => 'Maria Lopez', 'specialty' => 'Pediatría', 'email' => 'maria.lopez@example.com'],
-            ['id' => 2, 'name' => 'Juan Perez', 'specialty' => 'Urgencias', 'email' => 'juan.perez@example.com'],
-            ['id' => 3, 'name' => 'Ana Garcia', 'specialty' => 'Oncología', 'email' => 'ana.garcia@example.com'],
-        ];
+    // Nosotros definimos la ruta al archivo JSON donde guardamos los datos de los enfermeros.
+    private const NURSES_FILE = __DIR__ . '/../../public/nurses.json';
 
-        return new JsonResponse($nurses);
+    // Esta es la ruta principal de nuestra API.
+    #[Route('/nurse/index', name: 'app_nurse_index', methods: ['GET'])]
+    public function index(): JsonResponse
+    {
+        // Nosotros devolvemos un mensaje de bienvenida.
+        return $this->json([
+            'message' => 'Bienvenido a nuestra API de enfermeros!',
+            'path' => 'src/Controller/NurseController.php',
+        ]);
     }
 
-    #[Route('/nurse/login', name: 'nurse_login', methods: ['POST'])]
+    // Esta ruta se encarga del proceso de inicio de sesión para los enfermeros.
+    #[Route('/nurse/login', name: 'app_nurse_login', methods: ['POST'])]
     public function login(Request $request): JsonResponse
     {
+        // Nosotros decodificamos el contenido JSON que recibimos en la solicitud.
         $data = json_decode($request->getContent(), true);
 
-        $user = $data['user'] ?? null;
-        $password = $data['pw'] ?? null;
-
-        $validUsers = [
-            'maria.lopez' => 'pass123',
-            'juan.perez' => 'pass456',
-        ];
-
-        if ($user && $password && isset($validUsers[$user]) && $validUsers[$user] === $password) {
-            return new JsonResponse(['message' => 'Login successful', 'status' => true]);
+        // Validamos si el contenido JSON que nos enviaron es válido.
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            return $this->json(
+                ['success' => false, 'message' => 'Contenido JSON inválido.'],
+                Response::HTTP_BAD_REQUEST // 400 Bad Request
+            );
         }
 
-        return new JsonResponse(['message' => 'Invalid credentials', 'status' => false], JsonResponse::HTTP_UNAUTHORIZED);
-    }
+        // Nosotros obtenemos el 'user' y 'pw' de los datos, o 'null' si no están presentes.
+        $user = $data['user'] ?? null;
+        $pw = $data['pw'] ?? null;
 
-    #[Route('/nurse/name/{name}', name: 'find_nurse_by_name', methods: ['GET'])]
-    public function findNurseByName(string $name): JsonResponse
-    {
-        $nurses = [
-            ['id' => 1, 'name' => 'Maria Lopez', 'specialty' => 'Pediatría', 'email' => 'maria.lopez@example.com'],
-            ['id' => 2, 'name' => 'Juan Perez', 'specialty' => 'Urgencias', 'email' => 'juan.perez@example.com'],
-            ['id' => 3, 'name' => 'Ana Garcia', 'specialty' => 'Oncología', 'email' => 'ana.garcia@example.com'],
-            ['id' => 4, 'name' => 'Maria Rodriguez', 'specialty' => 'Cardiología', 'email' => 'maria.rodriguez@example.com'],
-        ];
+        // Verificamos que tanto el 'user' como el 'pw' hayan sido proporcionados.
+        if (!$user || !$pw) {
+            return $this->json(
+                ['success' => false, 'message' => 'Faltan user o pw en la solicitud.'],
+                Response::HTTP_BAD_REQUEST // 400 Bad Request
+            );
+        }
 
-        $foundNurses = array_filter($nurses, fn($nurse) => stripos($nurse['name'], $name) !== false);
+        $filesystem = new Filesystem();
+        // Nosotros comprobamos si el archivo de enfermeros existe en la ubicación especificada.
+        if (!$filesystem->exists(self::NURSES_FILE)) {
+            // En una aplicación real, registraríamos este error.
+            error_log('Error: nurses.json file not found at ' . self::NURSES_FILE);
+            return $this->json(
+                ['success' => false, 'message' => 'Error interno del servidor: archivo de enfermeros no encontrado.'],
+                Response::HTTP_INTERNAL_SERVER_ERROR // 500 Internal Server Error
+            );
+        }
 
-        return !empty($foundNurses)
-            ? new JsonResponse(array_values($foundNurses))
-            : new JsonResponse(['message' => 'Nurse not found'], JsonResponse::HTTP_NOT_FOUND);
+        // Intentamos leer todo el contenido del archivo de enfermeros.
+        $nursesContent = file_get_contents(self::NURSES_FILE);
+
+        if ($nursesContent === false) {
+             // También registraríamos este error.
+            error_log('Error: Could not read nurses.json file.');
+            return $this->json(
+                ['success' => false, 'message' => 'Error interno del servidor: no se pudo leer el archivo de enfermeros.'],
+                Response::HTTP_INTERNAL_SERVER_ERROR // 500 Internal Server Error
+            );
+        }
+
+        // Decodificamos el contenido del archivo JSON para trabajarlo como un array asociativo.
+        $nurses = json_decode($nursesContent, true);
+
+        // Verificamos si hubo algún error al decodificar el archivo JSON.
+        if ($nurses === null && json_last_error() !== JSON_ERROR_NONE) {
+            // Registramos el detalle del error de decodificación.
+            error_log('Error: Failed to decode nurses.json: ' . json_last_error_msg());
+            return $this->json(
+                ['success' => false, 'message' => 'Error interno del servidor: error al decodificar el archivo de enfermeros.'],
+                Response::HTTP_INTERNAL_SERVER_ERROR // 500 Internal Server Error
+            );
+        }
+
+        // Si el resultado no es un array (por ejemplo, el archivo estaba vacío o mal formado), nosotros lo inicializamos como un array vacío.
+        if (!is_array($nurses)) {
+             $nurses = [];
+        }
+
+        // Nosotros iteramos a través de cada enfermero en nuestro listado.
+        foreach ($nurses as $nurse) {
+            // Comprobamos si las credenciales ('user' y 'pw') del enfermero actual coinciden con las proporcionadas.
+            if (isset($nurse['user']) && isset($nurse['pw']) &&
+                $nurse['user'] === $user && $nurse['pw'] === $pw) {
+                // Si encontramos una coincidencia, el inicio de sesión es exitoso.
+                return $this->json(
+                    ['success' => true, 'message' => 'Login exitoso.'],
+                    Response::HTTP_OK // 200 OK
+                );
+            }
+        }
+
+        // Si nosotros llegamos a este punto, significa que no encontramos ningún enfermero con las credenciales dadas.
+        return $this->json(
+            ['success' => false, 'message' => 'Credenciales inválidas.'],
+            Response::HTTP_UNAUTHORIZED // 401 Unauthorized para credenciales incorrectas
+        );
     }
 }
-
