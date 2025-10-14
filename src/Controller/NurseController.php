@@ -59,7 +59,6 @@ final class NurseController extends AbstractController
                 Response::HTTP_INTERNAL_SERVER_ERROR
                 
             );
-           
         }
 
         $nursesContent = file_get_contents(self::NURSES_FILE);
@@ -69,7 +68,6 @@ final class NurseController extends AbstractController
                 ['success' => false, 'message' => 'No se pudo leer el archivo de enfermeros.'],
                 Response::HTTP_INTERNAL_SERVER_ERROR
             );
-             
         }
 
         $nurses = json_decode($nursesContent, true);
